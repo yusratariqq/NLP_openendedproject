@@ -1,0 +1,35 @@
+import faiss, numpy as np, pickle, os
+from sentence_transformers import SentenceTransformer
+from tqdm import tqdm
+
+print("Loading fine-tuned model...")
+model = SentenceTransformer('/content/models/embeddings_finetuned')
+
+print("Loading FineWiki documents...")
+with open(os.path.join(Config.CACHE_DIR, 'finewiki_data.pkl'), 'rb') as f:
+    finewiki_data = pickle.load(f)
+
+all_documents, all_texts = [], []
+for lang in ['ar', 'ta']:
+    for article in finewiki_data[lang]:
+        text = article.get('text', '')[:500]
+        if len(text) > 100:
+            all_documents.append({'title': article.get('title',''), 'text': text, 'language': lang})
+            all_texts.append(text)
+
+print(f"Total documents: {len(all_documents)}")
+
+print("\nGenerating embeddings (~20 mins)...")
+embeddings = model.encode(all_texts, batch_size=64, normalize_embeddings=True, show_progress_bar=True)
+
+print("\nBuilding FAISS index...")
+index = faiss.IndexFlatIP(embeddings.shape[1])
+index.add(embeddings.astype('float32'))
+print(f"Index size: {index.ntotal} vectors")
+
+os.makedirs('data/indices', exist_ok=True)
+faiss.write_index(index, Config.EVIDENCE_INDEX_PATH)
+with open(Config.DOCUMENTS_PATH, 'wb') as f:
+    pickle.dump(all_documents, f)
+
+print("✅ FAISS index built with fine-tuned model!")
